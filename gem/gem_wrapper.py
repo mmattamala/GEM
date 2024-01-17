@@ -68,11 +68,16 @@ class GEMWrapper(nn.Module):
         image_feat = feat_ori if return_ori else feat_gem
         image_feat = F.normalize(image_feat, dim=-1)  # [1, N, dim]
 
+        image_feat_out = rearrange(image_feat[:, 1:], 'b (w h) c -> b c w h',
+                                     w=W//self.patch_size, h=H//self.patch_size)  # [1, num_prompt, w, h]
+        image_feat_out = F.interpolate(image_feat_out, size=(W, H), mode='bilinear')  # [1, num_prompt, W, H]
+
         # Text
         text_embeddings = self.encode_text(text)  # [1, num_prompt, dim]
 
         # Image-Text matching
         img_txt_matching = image_feat[:, 1:] @ text_embeddings.transpose(-1, -2)  # [1, N, num_prompt]
+        print(img_txt_matching.shape)
         img_txt_matching = rearrange(img_txt_matching, 'b (w h) c -> b c w h',
                                      w=W//self.patch_size, h=H//self.patch_size)  # [1, num_prompt, w, h]
 
@@ -82,7 +87,7 @@ class GEMWrapper(nn.Module):
         # Heat Maps
         if normalize:
             img_txt_matching = self.min_max(img_txt_matching)
-        return img_txt_matching
+        return img_txt_matching, image_feat_out, text_embeddings
 
     def batched_forward(self, image: torch.Tensor, text: list, normalize: bool = True, return_ori: bool =False):
         """
@@ -120,4 +125,5 @@ class GEMWrapper(nn.Module):
         # unflatten
         img_txt_matching = torch.tensor_split(img_txt_matching, cumm_idx[:-1], dim=1)
         img_txt_matching = [itm[i] for i, itm in enumerate(img_txt_matching)]
-        return img_txt_matching
+        return img_txt_matching, image_feat, text_embeddings
+
